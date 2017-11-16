@@ -2,152 +2,20 @@ import json
 import urllib
 import requests
 import time
+from .utils import combine_headers, save_attribute_items, unwrap_data
+from . import exceptions
 
-TEMPLATE_BASE_NAME = 'ABC Template'
-TEMPLATE_LOCATION = 'ABC Templates'
-FOLDER_BASE_NAME = 'ABC'
-
-RAW_DATA_NODE_ID = 'tjvx6'
-DATA_ENTRY_NODE_ID = 'rkxcb'
-
-RAW_DATA_NODE_PROVIDER = 'googledrive'
-DATA_ENTRY_NODE_PROVIDER = 'googledrive'
-
-
-API_BASE_URL = 'https://api.osf.io/'
-DEFAULT_API_VERSION = '2.6'
-
-
-def combine_headers(header_one, header_two):
-    if header_two is None:
-        return header_one
-    elif header_one is None:
-        return header_two
-    else:
-        return {**header_one, **header_two}
-
-# ------------------- PyCharm specific code
-
-
-def api_token():
-    """
-    Never store the api_token in a variable in a Jupyter notebook. Always call this function to get the token.
-    """
-    return 'notarealtoken'
-
-
-# -------------------- Models
-
-
-class MisorderedDates(Exception):
-    pass
-
-
-class NotAHalf(Exception):
-    pass
-
-
-class WrongNumberOfParts(Exception):
-    pass
-
-
-class OnlyOneName(Exception):
-    pass
-
-
-class UnsupportedHTTPMethod(Exception):
-    pass
-
-
-class APITimeoutWithoutRetry(Exception):
-    pass
-
-
-class UnsupportedMethod(Exception):
-    pass
-
-
-class Template:
-    def __init__(self, name, location, base_name):
-        self.name = name
-        self.location = location
-        self.base_name = base_name
-        self.start_year = None
-        self.start_year_half = 1
-        self.end_year = None
-        self.end_year_half = 2
-        self.decompose_name()
-
-    def decompose_name(self):
-        base_name_end = len(self.base_name) + 1
-        splittable_string = self.name[base_name_end:].strip()
-        removed_extension = splittable_string.split('.')[0]
-        split_string = removed_extension.split('-')
-        split_length = len(split_string)
-        if split_length == 2:
-            self.start_year = int(split_string[0])
-            self.end_year = int(split_string[1])
-        elif split_length == 3:
-            self.start_year = int(split_string[0])
-            second_part = int(split_string[1])
-            third_part = int(split_string[2])
-            self.end_year = max(second_part, third_part)
-            if second_part > third_part:
-                self.end_year_half = third_part
-            else:
-                self.start_year_half = second_part
-        elif split_length == 4:
-            self.start_year = int(split_string[0])
-            self.start_year_half = int(split_string[1])
-            self.end_year = int(split_string[2])
-            self.end_year_half = int(split_string[3])
-        else:
-            raise WrongNumberOfParts("Expected 2, 3, or 4 parts of date range. Got {split_length} on {self.base_name}")
-
-        if self.start_year > self.end_year:
-            raise MisorderedDates('Start year {self.start_year} is after end year {self.end_year} on {self.base_name}')
-        if self.start_year == self.end_year and self.start_year_half >= self.end_year_half:
-            raise MisorderedDates('Year halfs are equal or out of order on {self.base_name}')
-        if self.start_year_half != 1 and self.start_year_half != 2:
-            raise NotAHalf('Start year half needs to be 1 or 2. Was {self.start_year_half} on {self.base_name}')
-        if self.end_year_half != 1 and self.end_year_half != 2:
-            raise NotAHalf('End year half needs to be 1 or 2. Was {self.end_year_half} on {self.base_name}')
-
-    @staticmethod
-    def start_end(year, half):
-        if year:
-            if half == 1:
-                return year + .1
-            if half == 2:
-                return year + .9
-        return None
-
-    @property
-    def start(self):
-        return self.start_end(self.start_year, self.start_year_half)
-
-    @property
-    def end(self):
-        return self.start_end(self.end_year, self.end_year_half)
-
-
-# --------------------- API
 
 class Session:
-    def __init__(self, api_base_url, default_version=None):
+    def __init__(self, api_base_url, token, default_version=None):
         self.api_base_url = api_base_url
-        self.default_version = default_version or DEFAULT_API_VERSION
+        self.default_version = default_version
+        self.token = token
 
-    @staticmethod
-    def token():
-        # If this weren't a Jupyter Notebook, this would just be replaced with a property
-        return api_token()
-
-    @staticmethod
-    def base_headers():
+    def base_headers(self):
         return {
             'content-type': 'application/vnd.api+json',
-            'Authorization': 'Bearer {}'.format(api_token()),
+            'Authorization': 'Bearer {}'.format(self.token),
         }
 
     def json_api_request(self, url, method=None, item_id=None, item_type=None, attributes=None, raw_body=None,
@@ -171,9 +39,9 @@ class Session:
             method = method.upper()
         if query_parameters:
             if not query_parameters.get('version', None):
-                query_parameters.update({'version': DEFAULT_API_VERSION})
+                query_parameters.update({'version': self.default_version})
         else:
-            query_parameters = {'version': DEFAULT_API_VERSION}
+            query_parameters = {'version': self.default_version}
         keep_trying = True
         response = None
 
@@ -196,7 +64,7 @@ class Session:
                     response = requests.delete(url, params=query_parameters,
                                                headers=combine_headers(self.base_headers(), headers))
                 else:
-                    raise UnsupportedHTTPMethod("Only GET/POST/PUT/PATCH/DELETE supported, not {}".format(method))
+                    raise exceptions.UnsupportedHTTPMethod("Only GET/POST/PUT/PATCH/DELETE supported, not {}".format(method))
                 if response.status_code == 429:
                     keep_trying = retry
                     response_headers = response.headers
@@ -247,36 +115,27 @@ class Session:
         return {key: value for key,value in items.items() if value is not None and key != 'self'}
 
 
-def save_attribute_items(target, response_attributes):
-    for key,value in response_attributes.items():
-        setattr(target, key, value)
-
-
 class TopLevelData:
     def __init__(self, response, tld_key):
         self.update(response=response, tld_key=tld_key)
 
     def update(self, response, tld_key):
-        tld_data = response.get('data', None)
+        tld_data = unwrap_data(response)
         if tld_data:
             tld = tld_data.get(tld_key, None)
             if tld:
                 save_attribute_items(self, response_attributes=tld)
 
 
-class Node:
-    def __init__(self, session, id=None, self_link=None):
-        super().__init__()
-        self.id = id
-        self.session = session
-        self.type = 'nodes'
-        self.links = None
-        self.meta = None
-        self.self_link = self_link
-        self.providers = []
+class APIDetail:
+    def __init__(self, session, data=None):
+        self.session=session
+        if data is not None:
+            self._update(response=data)
 
     def _update(self, response):
-        response_data = response.get('data', None)
+        response_data = unwrap_data(response)
+
         if response_data:
             response_attributes = response_data['attributes']
             save_attribute_items(self, response_attributes=response_attributes)
@@ -284,6 +143,17 @@ class Node:
             self.relationships = TopLevelData(response=response, tld_key='relationships')
             self.links = TopLevelData(response=response, tld_key='links')
             self.meta = TopLevelData(response=response, tld_key='meta')
+
+
+class Node(APIDetail):
+    def __init__(self, session, id=None, self_link=None, data=None):
+        super().__init__(session=session, data=data)
+        self.id = id
+        self.type = 'nodes'
+        self.links = None
+        self.meta = None
+        self.self_link = self_link
+        self.providers = []
 
     def create(self, title, category="project", description=None, public=None, tags=None, template_from=None):
         saved_args = locals()
@@ -323,17 +193,22 @@ class Node:
         providers_url = self.relationships.files['links']['related']['href']
         response = self.session.get(url=providers_url)
         if response:
-            pass
+            providers = response['data']
+            for provider in providers:
+                self.providers.append(Provider(session= self.session, data=provider))
+
+        return self.providers
 
 
-class File:
-    def __init__(self, node, session, location, name=None):
-        super().__init__()
-        self.name = name
-        self.location = location
-        self.type = "file"
-        self.node = node
-        self.session = session
+class File(APIDetail):
+    def __init__(self, session, node=None, location=None, name=None, data=None):
+        super().__init__(session=session, data=data)
+        if data is None:
+            self.name = name
+            self.location = location
+            self.type = "file"
+            self.node = node
+            self.session = session
 
     def get(self):
         pass
@@ -358,15 +233,12 @@ class File:
 
 
 class Folder(File):
-    def __init__(self, node, session, location, name=None):
-        super().__init__(node, session, location, name=None)
+    def __init__(self, session, node=None, location=None, name=None, data=None):
+        super().__init__(session=session, node=node, location=location, name=name, data=data)
         self.type = "files"
 
-    def get(self):
-        pass
-
     def download(self):
-        raise UnsupportedMethod("Cannot download a folder")
+        raise exceptions.UnsupportedMethod("Cannot download a folder")
 
     def list(self):
         return self.get()
@@ -391,26 +263,6 @@ class Folder(File):
 
 
 class Provider(Folder):
-        def __init__(self, node, session, provider_name, name=None):
-            super().__init__(node=node, session=session, location=provider_name, name=name)
-            self.provider_name = provider_name
+    pass
 
 
-# -------------------- manual api test
-
-
-def main():
-    test_session = Session(api_base_url="https://staging-api.osf.io/")
-
-    # new_node = Node(session=test_session)
-    # new_node.create(title="Quick test 4")
-    # print(getattr(new_node, 'title', None))
-    # print(getattr(new_node, 'date_modified', None))
-    # new_node = new_node.delete()
-    some_project = Node(session=test_session, id='9h53q')
-    some_project.get_providers()
-    print(getattr(some_project, 'title', None))
-
-
-
-main()
