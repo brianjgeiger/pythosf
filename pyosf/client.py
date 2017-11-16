@@ -148,11 +148,12 @@ class APIDetail:
 class Node(APIDetail):
     def __init__(self, session, id=None, self_link=None, data=None):
         super().__init__(session=session, data=data)
-        self.id = id
-        self.type = 'nodes'
-        self.links = None
-        self.meta = None
-        self.self_link = self_link
+        if not data:
+            self.id = id
+            self.type = 'nodes'
+            self.links = None
+            self.meta = None
+            self.self_link = self_link
         self.providers = []
 
     def create(self, title, category="project", description=None, public=None, tags=None, template_from=None):
