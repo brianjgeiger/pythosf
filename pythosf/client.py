@@ -7,20 +7,26 @@ from . import exceptions
 
 
 class Session:
-    def __init__(self, api_base_url, token, default_version=None):
+    def __init__(self, api_base_url, token=None, default_version=None):
         self.api_base_url = api_base_url
         self.default_version = default_version
         self.token = token
 
-    def base_headers(self):
+    def base_headers(self, token):
+        if token:
+            return {
+                'content-type': 'application/vnd.api+json',
+                'Authorization': 'Bearer {}'.format(token),
+            }
         return {
             'content-type': 'application/vnd.api+json',
-            'Authorization': 'Bearer {}'.format(self.token),
         }
 
     def json_api_request(self, url, method=None, item_id=None, item_type=None, attributes=None, raw_body=None,
-                         query_parameters=None, fields=None, headers=None, retry=True):
+                         query_parameters=None, fields=None, headers=None, retry=True, token=None):
         request_body = {}
+        if not token:
+            token = self.token
 
         url = urllib.parse.urljoin(base=self.api_base_url, url=url)
         request_data = {}
@@ -50,19 +56,19 @@ class Session:
             try:
                 if method == 'GET':
                     response = requests.get(url, params=query_parameters,
-                                            headers=combine_headers(self.base_headers(), headers))
+                                            headers=combine_headers(self.base_headers(token=token), headers))
                 elif method == 'POST':
                     response = requests.post(url, params=query_parameters, json=request_data, data=raw_body,
-                                             headers=combine_headers(self.base_headers(), headers))
+                                             headers=combine_headers(self.base_headers(token=token), headers))
                 elif method == 'PUT':
                     response = requests.put(url, params=query_parameters, json=request_data, data=raw_body,
-                                            headers=combine_headers(self.base_headers(), headers))
+                                            headers=combine_headers(self.base_headers(token=token), headers))
                 elif method == 'PATCH':
                     response = requests.patch(url, params=query_parameters, json=request_data, data=raw_body,
-                                              headers=combine_headers(self.base_headers(), headers))
+                                              headers=combine_headers(self.base_headers(token=token), headers))
                 elif method == 'DELETE':
                     response = requests.delete(url, params=query_parameters,
-                                               headers=combine_headers(self.base_headers(), headers))
+                                               headers=combine_headers(self.base_headers(token=token), headers))
                 else:
                     raise exceptions.UnsupportedHTTPMethod("Only GET/POST/PUT/PATCH/DELETE supported, not {}".format(method))
                 if response.status_code == 429:
@@ -85,29 +91,31 @@ class Session:
         except json.decoder.JSONDecodeError:
             return None
 
-    def get(self, url, query_parameters=None, headers=None, retry=True):
+    def get(self, url, query_parameters=None, headers=None, retry=True, token=None):
         return self.json_api_request(url=url, method="GET", query_parameters=query_parameters,
-                                     headers=headers, retry=retry)
+                                     headers=headers, retry=retry, token=token)
 
-    def post(self, url, item_type, query_parameters=None, attributes=None, headers=None, retry=True):
+    def post(self, url, item_type, query_parameters=None, attributes=None, headers=None, retry=True, token=None):
         return self.json_api_request(url=url, method="POST", item_type=item_type, attributes=attributes,
                                      query_parameters=query_parameters,
-                                     headers=headers, retry=retry)
+                                     headers=headers, retry=retry, token=token)
 
     def put(self, url, item_id, item_type, query_parameters=None, attributes=None, headers=None,
-            retry=True):
-        return self.json_api_request(url=url, method="PUT", item_id=item_id, item_type=item_type, attributes=attributes,
-                                     query_parameters=query_parameters, headers=headers, retry=retry)
+            retry=True, token=None):
+        return self.json_api_request(url=url, method="PUT", item_id=item_id, item_type=item_type,
+                                     attributes=attributes, query_parameters=query_parameters, headers=headers,
+                                     retry=retry, token=token)
 
     def patch(self, url, item_id, item_type, query_parameters=None, attributes=None, headers=None,
-              retry=True):
-        return self.json_api_request(url=url, method="PATCH", item_id=item_id, item_type=item_type, attributes=attributes,
-                                     query_parameters=query_parameters, headers=headers, retry=retry)
+              retry=True, token=None):
+        return self.json_api_request(url=url, method="PATCH", item_id=item_id, item_type=item_type,
+                                     attributes=attributes, query_parameters=query_parameters, headers=headers,
+                                     retry=retry, token=token)
 
     def delete(self, url, item_type, query_parameters=None, attributes=None, headers=None,
-               retry=True):
+               retry=True, token=None):
         self.json_api_request(url=url, method="DELETE", item_type=item_type, attributes=attributes,
-                                     query_parameters=query_parameters, headers=headers, retry=retry)
+                              query_parameters=query_parameters, headers=headers, retry=retry, token=token)
         return None
 
     @staticmethod
@@ -156,23 +164,24 @@ class Node(APIDetail):
             self.self_link = self_link
         self.providers = []
 
-    def create(self, title, category="project", description=None, public=None, tags=None, template_from=None):
+    def create(self, title, category="project", description=None, public=None, tags=None,
+               template_from=None, token=None):
         saved_args = locals()
         attributes = self.session.remove_none_items(saved_args)
-        response = self.session.post(url='/v2/nodes/', item_type=self.type, attributes=attributes)
+        response = self.session.post(url='/v2/nodes/', item_type=self.type, attributes=attributes, token=token)
         if response:
             self._update(response=response)
 
-    def delete(self):
+    def delete(self, token=None):
         if self.id is None:
             return None
         else:
             self_url = self.links.self
-            self.session.delete(url=self_url, item_type=self.type)
+            self.session.delete(url=self_url, item_type=self.type, token=token)
             self.id = None
             return None
 
-    def get(self):
+    def get(self, token=None):
         url = None
         if self.self_link:
             url = self.self_link
@@ -182,17 +191,17 @@ class Node(APIDetail):
             url = '/v2/nodes/{}/'.format(self.id)
 
         if url:
-            response = self.session.get(url=url)
+            response = self.session.get(url=url, token=token)
             if response:
                 self._update(response=response)
         else:
             raise ValueError("No url or id to get. Set the id or self_link then try to get.")
 
-    def get_providers(self):
+    def get_providers(self, token=None):
         if not getattr(self, 'relationships', False):
-            self.get()
+            self.get(token=token)
         providers_url = self.relationships.files['links']['related']['href']
-        response = self.session.get(url=providers_url)
+        response = self.session.get(url=providers_url, token=token)
         if response:
             providers = response['data']
             for provider in providers:
