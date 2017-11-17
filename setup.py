@@ -26,15 +26,15 @@ extra_files.append(os.path.join(here, 'VERSION'))
 
 
 setup(
-    name='pyosf',
-    # update `osfclient/__init__.py` as well
+    name='pythosf',
+    # update `pythosf/__init__.py` as well
     version=__version__,
 
     description='Python API library for the OSF',
     long_description=long_description,
 
     # The project's main homepage.
-    url='https://github.com/brianjgeiger/py-osf',
+    url='https://github.com/brianjgeiger/pythosf',
 
     # Author details
     author='Brian J. Geiger',
