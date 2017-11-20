@@ -108,22 +108,23 @@ class Session:
             response['data'] = items
         return response
 
-    def post(self, url, item_type, query_parameters=None, attributes=None, headers=None, retry=True, token=None):
+    def post(self, url, item_type=None, query_parameters=None, attributes=None, headers=None, retry=True, token=None,
+             raw_body=None):
         return self.json_api_request(url=url, method="POST", item_type=item_type, attributes=attributes,
-                                     query_parameters=query_parameters,
-                                     headers=headers, retry=retry, token=token)
+                                     query_parameters=query_parameters, headers=headers, retry=retry,
+                                     raw_body=raw_body, token=token)
 
     def put(self, url, item_id, item_type, query_parameters=None, attributes=None, headers=None,
-            retry=True, token=None):
+            retry=True, raw_body=None, token=None):
         return self.json_api_request(url=url, method="PUT", item_id=item_id, item_type=item_type,
                                      attributes=attributes, query_parameters=query_parameters, headers=headers,
-                                     retry=retry, token=token)
+                                     retry=retry, raw_body=raw_body, token=token)
 
     def patch(self, url, item_id, item_type, query_parameters=None, attributes=None, headers=None,
-              retry=True, token=None):
+              retry=True, raw_body=None, token=None):
         return self.json_api_request(url=url, method="PATCH", item_id=item_id, item_type=item_type,
                                      attributes=attributes, query_parameters=query_parameters, headers=headers,
-                                     retry=retry, token=token)
+                                     retry=retry, raw_body=raw_body, token=token)
 
     def delete(self, url, item_type, query_parameters=None, attributes=None, headers=None,
                retry=True, token=None):
@@ -158,7 +159,10 @@ class APIDetail:
         response_data = unwrap_data(response)
 
         if response_data:
-            response_attributes = response_data['attributes']
+            if 'attributes' in response_data:
+                response_attributes = response_data['attributes']
+            else:
+                response_attributes = response_data
             save_attribute_items(self, response_attributes=response_attributes)
             self.id = response_data.get('id', None)
             self.relationships = TopLevelData(response=response, tld_key='relationships')
@@ -242,17 +246,39 @@ class File(APIDetail):
     def upload(self):
         raise NotImplementedError
 
-    def move(self):
-        pass
+    def _move_or_copy(self, to_folder, action, rename=None, conflict=None, token=None):
+        body = {
+            'action': action,
+            'path': to_folder.path,
+            'resource': to_folder.relationships.node['data']['id'],
+            'provider': to_folder.provider,
+        }
+        if rename:
+            body['rename'] = rename
+        if conflict:
+            body['conflict'] = conflict
+        raw_body = json.JSONEncoder().encode(body)
+        url = self.links.move
+        return self.session.post(url=url, raw_body=raw_body, token=token)
 
-    def copy(self):
-        pass
+    def move(self, to_folder, rename=None, conflict=None, token=None):
+        self._move_or_copy(to_folder=to_folder, action='move', rename=rename, conflict=conflict, token=token)
+
+    def copy(self, to_folder, rename=None, conflict=None, token=None):
+        self._move_or_copy(to_folder=to_folder, action='copy', rename=rename, conflict=conflict, token=token)
 
     def delete(self):
         pass
 
-    def rename(self):
-        pass
+    def rename(self, name, token=None):
+        body = {
+            'action': 'rename',
+            'rename': name
+        }
+        raw_body = json.JSONEncoder().encode(body)
+        url = self.links.move
+        response = self.session.post(url=url, raw_body=raw_body, token=token)
+        self._update(response=response)
 
 
 class Folder(File):
