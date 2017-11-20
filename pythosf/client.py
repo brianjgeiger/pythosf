@@ -4,6 +4,7 @@ import requests
 import time
 from .utils import combine_headers, save_attribute_items, unwrap_data
 from . import exceptions
+from typing import List
 
 
 class Session:
@@ -12,7 +13,8 @@ class Session:
         self.default_version = default_version
         self.token = token
 
-    def base_headers(self, token):
+    @staticmethod
+    def base_headers(token):
         if token:
             return {
                 'content-type': 'application/vnd.api+json',
@@ -91,9 +93,20 @@ class Session:
         except json.decoder.JSONDecodeError:
             return None
 
-    def get(self, url, query_parameters=None, headers=None, retry=True, token=None):
-        return self.json_api_request(url=url, method="GET", query_parameters=query_parameters,
+    def get(self, url, query_parameters=None, headers=None, retry=True, token=None, retrieve_all=False):
+        response = self.json_api_request(url=url, method="GET", query_parameters=query_parameters,
                                      headers=headers, retry=retry, token=token)
+        response_data = response['data']
+        if retrieve_all == True and isinstance(response_data, List) and response['links']['next']:
+            items = response_data
+            while response['links']['next']:
+                response = self.json_api_request(url=response['links']['next'], method="GET",
+                                                 query_parameters=query_parameters, headers=headers, retry=retry,
+                                                 token=token)
+                response_data = response['data']
+                items = items + response_data
+            response['data'] = items
+        return response
 
     def post(self, url, item_type, query_parameters=None, attributes=None, headers=None, retry=True, token=None):
         return self.json_api_request(url=url, method="POST", item_type=item_type, attributes=attributes,
@@ -246,6 +259,21 @@ class Folder(File):
     def __init__(self, session, node=None, location=None, name=None, data=None):
         super().__init__(session=session, node=node, location=location, name=name, data=data)
         self.type = "files"
+        self.files = []
+
+    def get(self, token=None, append=False, retrieve_all=False):
+        url = self.relationships.files['links']['related']['href']
+        response = self.session.get(url=url, token=token, retrieve_all=retrieve_all)
+        if response:
+            files = response['data']
+            if not append:
+                self.files = []
+            for file in files:
+                file_kind = file['attributes']['kind']
+                if file_kind == 'file':
+                    self.files.append(File(session=self.session, data=file))
+                elif file_kind == 'folder':
+                    self.files.append(Folder(session=self.session, data=file))
 
     def download(self):
         raise exceptions.UnsupportedMethod("Cannot download a folder")
