@@ -15,6 +15,20 @@ Example usage:
     new_node.delete()
 
     some_project = client.Node(session=test_session, id='9h53q')
-    some_project.get_providers()
+    providers = some_project.get_providers()
     print(getattr(some_project, 'title', None))
+
+    my_provider = None
+    for provider in providers:
+        if provider.name == TEST_NODE_PROVIDER:
+            my_provider = provider
+            break
+    my_provider.get(retrieve_all=True) 
+    files = my_provider.files
+    for file in files:
+        if file.name == '1.png':
+            my_file = file
+        elif file.name == 'ten':
+            my_folder = file
+    my_file.move(to_folder=my_folder, conflict='replace')
 ```
