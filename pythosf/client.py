@@ -114,7 +114,7 @@ class Session:
                                      query_parameters=query_parameters, headers=headers, retry=retry,
                                      raw_body=raw_body, token=token)
 
-    def put(self, url, item_id, item_type, query_parameters=None, attributes=None, headers=None,
+    def put(self, url, item_id=None, item_type=None, query_parameters=None, attributes=None, headers=None,
             retry=True, raw_body=None, token=None):
         return self.json_api_request(url=url, method="PUT", item_id=item_id, item_type=item_type,
                                      attributes=attributes, query_parameters=query_parameters, headers=headers,
@@ -134,7 +134,7 @@ class Session:
 
     @staticmethod
     def remove_none_items(items):
-        return {key: value for key,value in items.items() if value is not None and key != 'self'}
+        return {key: value for key,value in items.items() if value is not None and key != 'self' and key != 'token'}
 
 
 class TopLevelData:
@@ -188,6 +188,18 @@ class Node(APIDetail):
         response = self.session.post(url='/v2/nodes/', item_type=self.type, attributes=attributes, token=token)
         if response:
             self._update(response=response)
+        return self
+
+    def create_child(self, title, category="project", description=None, public=None, tags=None,
+                     template_from=None, token=None):
+        saved_args = locals()
+        attributes = self.session.remove_none_items(saved_args)
+        child_node = Node(session=self.session)
+        url = self.relationships.children['links']['related']['href']
+        response = self.session.post(url=url, item_type=self.type, attributes=attributes, token=token)
+        if response:
+            child_node._update(response=response)
+        return child_node
 
     def delete(self, token=None):
         if self.id is None:
@@ -237,14 +249,25 @@ class File(APIDetail):
             self.node = node
             self.session = session
 
-    def get(self):
-        pass
+    def get(self, url=None, token=None):
+        if url:
+            self.location = url
+        elif self.links.self:
+            self.location = self.links.self
 
-    def download(self):
-        raise NotImplementedError
+        response = self.session.get(url=self.location, token=token)
+        self._update(response=response)
 
-    def upload(self):
-        raise NotImplementedError
+    def download(self, token=None):
+        url = self.links.download
+        return self.session.get(url=url, token=token)
+
+    def upload(self, data, token=None):
+        url = self.links.upload
+        query_parameters={
+            'kind': 'file',
+        }
+        return self.session.put(url=url, query_parameters=query_parameters, raw_body=data, token=token)
 
     def _move_or_copy(self, to_folder, action, rename=None, conflict=None, token=None):
         body = {
@@ -267,8 +290,9 @@ class File(APIDetail):
     def copy(self, to_folder, rename=None, conflict=None, token=None):
         self._move_or_copy(to_folder=to_folder, action='copy', rename=rename, conflict=conflict, token=token)
 
-    def delete(self):
-        pass
+    def delete(self, token=None):
+        url = self.links.delete
+        return self.session.delete(url=url, token=token)
 
     def rename(self, name, token=None):
         body = {
@@ -301,29 +325,27 @@ class Folder(File):
                 elif file_kind == 'folder':
                     self.files.append(Folder(session=self.session, data=file))
 
-    def download(self):
+    def download(self, token=None):
         raise exceptions.UnsupportedMethod("Cannot download a folder")
 
-    def list(self):
-        return self.get()
+    def list(self, token=None, append=False, retrieve_all=False):
+        return self.get(token=token, append=append, retrieve_all=retrieve_all)
 
-    def create(self):
-        pass
+    def create(self, name, token=None):
+        url = self.links.new_folder
+        params = {
+            'kind': 'folder',
+            'name': name,
+        }
+        return self.session.put(url=url, query_parameters=params, token=token)
 
-    def delete(self):
-        pass
-
-    def move(self):
-        pass
-
-    def copy(self):
-        pass
-
-    def rename(self):
-        pass
-
-    def upload(self):
-        pass
+    def upload(self, name, data, token=None):
+        url = self.links.upload
+        query_parameters = {
+            'kind': 'file',
+            'name': name,
+        }
+        return self.session.put(url=url, query_parameters=query_parameters, raw_data=data, token=token)
 
 
 class Provider(Folder):
