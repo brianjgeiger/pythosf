@@ -182,35 +182,37 @@ class Node(APIDetail):
         self.providers = []
 
     def create(self, title, category="project", description=None, public=None, tags=None,
-               template_from=None, token=None):
+               template_from=None, query_parameters=None, token=None):
         saved_args = locals()
         attributes = self.session.remove_none_items(saved_args)
-        response = self.session.post(url='/v2/nodes/', item_type=self.type, attributes=attributes, token=token)
+        response = self.session.post(url='/v2/nodes/', item_type=self.type, attributes=attributes,
+                                     query_parameters=query_parameters, token=token)
         if response:
             self._update(response=response)
         return self
 
     def create_child(self, title, category="project", description=None, public=None, tags=None,
-                     template_from=None, token=None):
+                     template_from=None, query_parameters=None, token=None):
         saved_args = locals()
         attributes = self.session.remove_none_items(saved_args)
         child_node = Node(session=self.session)
         url = self.relationships.children['links']['related']['href']
-        response = self.session.post(url=url, item_type=self.type, attributes=attributes, token=token)
+        response = self.session.post(url=url, item_type=self.type, attributes=attributes,
+                                     query_parameters=query_parameters, token=token)
         if response:
             child_node._update(response=response)
         return child_node
 
-    def delete(self, token=None):
+    def delete(self, query_parameters=None, token=None):
         if self.id is None:
             return None
         else:
             self_url = self.links.self
-            self.session.delete(url=self_url, item_type=self.type, token=token)
+            self.session.delete(url=self_url, item_type=self.type, query_parameters=query_parameters, token=token)
             self.id = None
             return None
 
-    def get(self, token=None):
+    def get(self, query_parameters=None, token=None):
         url = None
         if self.self_link:
             url = self.self_link
@@ -220,17 +222,17 @@ class Node(APIDetail):
             url = '/v2/nodes/{}/'.format(self.id)
 
         if url:
-            response = self.session.get(url=url, token=token)
+            response = self.session.get(url=url, query_parameters=query_parameters, token=token)
             if response:
                 self._update(response=response)
         else:
             raise ValueError("No url or id to get. Set the id or self_link then try to get.")
 
-    def get_providers(self, token=None):
+    def get_providers(self, query_parameters=None, token=None):
         if not getattr(self, 'relationships', False):
             self.get(token=token)
         providers_url = self.relationships.files['links']['related']['href']
-        response = self.session.get(url=providers_url, token=token)
+        response = self.session.get(url=providers_url, query_parameters=query_parameters, token=token)
         if response:
             providers = response['data']
             for provider in providers:
@@ -249,27 +251,29 @@ class File(APIDetail):
             self.node = node
             self.session = session
 
-    def get(self, url=None, token=None):
+    def get(self, url=None, query_parameters=None, token=None):
         if url:
             self.location = url
         elif self.links.self:
             self.location = self.links.self
 
-        response = self.session.get(url=self.location, token=token)
+        response = self.session.get(url=self.location, query_parameters=query_parameters, token=token)
         self._update(response=response)
 
-    def download(self, token=None):
+    def download(self, query_parameters=None, token=None):
         url = self.links.download
-        return self.session.get(url=url, token=token)
+        return self.session.get(url=url, query_parameters=query_parameters, token=token)
 
-    def upload(self, data, token=None):
+    def upload(self, data, query_parameters=None, token=None):
         url = self.links.upload
-        query_parameters={
+        query_parameters = query_parameters or {}
+        upload_query_parameters={
             'kind': 'file',
         }
-        return self.session.put(url=url, query_parameters=query_parameters, raw_body=data, token=token)
+        combined_query_parameters = {**query_parameters, **upload_query_parameters}
+        return self.session.put(url=url, query_parameters=combined_query_parameters, raw_body=data, token=token)
 
-    def _move_or_copy(self, to_folder, action, rename=None, conflict=None, token=None):
+    def _move_or_copy(self, to_folder, action, rename=None, conflict=None, query_parameters=None, token=None):
         body = {
             'action': action,
             'path': to_folder.path,
@@ -282,26 +286,28 @@ class File(APIDetail):
             body['conflict'] = conflict
         raw_body = json.JSONEncoder().encode(body)
         url = self.links.move
-        return self.session.post(url=url, raw_body=raw_body, token=token)
+        return self.session.post(url=url, raw_body=raw_body, query_parameters=query_parameters, token=token)
 
-    def move(self, to_folder, rename=None, conflict=None, token=None):
-        self._move_or_copy(to_folder=to_folder, action='move', rename=rename, conflict=conflict, token=token)
+    def move(self, to_folder, rename=None, conflict=None, query_parameters=None, token=None):
+        self._move_or_copy(to_folder=to_folder, action='move', rename=rename, conflict=conflict,
+                           query_parameters=query_parameters, token=token)
 
-    def copy(self, to_folder, rename=None, conflict=None, token=None):
-        self._move_or_copy(to_folder=to_folder, action='copy', rename=rename, conflict=conflict, token=token)
+    def copy(self, to_folder, rename=None, conflict=None, query_parameters=None, token=None):
+        self._move_or_copy(to_folder=to_folder, action='copy', rename=rename, conflict=conflict,
+                           query_parameters=query_parameters, token=token)
 
-    def delete(self, token=None):
+    def delete(self, query_parameters=None, token=None):
         url = self.links.delete
-        return self.session.delete(url=url, token=token)
+        return self.session.delete(url=url, query_parameters=query_parameters, token=token)
 
-    def rename(self, name, token=None):
+    def rename(self, name, query_parameters=None, token=None):
         body = {
             'action': 'rename',
             'rename': name
         }
         raw_body = json.JSONEncoder().encode(body)
         url = self.links.move
-        response = self.session.post(url=url, raw_body=raw_body, token=token)
+        response = self.session.post(url=url, raw_body=raw_body, query_parameters=query_parameters, token=token)
         self._update(response=response)
 
 
@@ -311,9 +317,9 @@ class Folder(File):
         self.type = "files"
         self.files = []
 
-    def get(self, token=None, append=False, retrieve_all=False):
+    def get(self, token=None, append=False, query_parameters=None, retrieve_all=False):
         url = self.relationships.files['links']['related']['href']
-        response = self.session.get(url=url, token=token, retrieve_all=retrieve_all)
+        response = self.session.get(url=url, token=token, retrieve_all=retrieve_all, query_parameters=query_parameters)
         if response:
             files = response['data']
             if not append:
@@ -325,27 +331,31 @@ class Folder(File):
                 elif file_kind == 'folder':
                     self.files.append(Folder(session=self.session, data=file))
 
-    def download(self, token=None):
+    def download(self, query_parameters=None, token=None):
         raise exceptions.UnsupportedMethod("Cannot download a folder")
 
-    def list(self, token=None, append=False, retrieve_all=False):
-        return self.get(token=token, append=append, retrieve_all=retrieve_all)
+    def list(self, token=None, append=False, query_parameters=None, retrieve_all=False):
+        return self.get(token=token, append=append, query_parameters=query_parameters, retrieve_all=retrieve_all)
 
-    def create(self, name, token=None):
+    def create(self, name, query_parameters=None, token=None):
         url = self.links.new_folder
-        params = {
+        query_parameters = query_parameters or {}
+        create_query_parameters = {
             'kind': 'folder',
             'name': name,
         }
-        return self.session.put(url=url, query_parameters=params, token=token)
+        combined_query_parameters = {**query_parameters, **create_query_parameters}
+        return self.session.put(url=url, query_parameters=combined_query_parameters, token=token)
 
-    def upload(self, name, data, token=None):
+    def upload(self, name, data, query_parameters=None, token=None):
         url = self.links.upload
-        query_parameters = {
+        query_parameters = query_parameters or {}
+        upload_query_parameters = {
             'kind': 'file',
             'name': name,
         }
-        return self.session.put(url=url, query_parameters=query_parameters, raw_data=data, token=token)
+        combined_query_parameters = {**query_parameters, **upload_query_parameters}
+        return self.session.put(url=url, query_parameters=combined_query_parameters, raw_data=data, token=token)
 
 
 class Provider(Folder):
