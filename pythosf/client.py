@@ -42,6 +42,9 @@ class Session:
                 request_body['type'] = item_type
             if request_body is not None:
                 request_data['data']=request_body
+        elif raw_body == '':
+            request_data = None
+            raw_body = None
 
         if method is not None:
             method = method.upper()
@@ -88,6 +91,7 @@ class Session:
                     raise requests.exceptions.HTTPError("Status code {}. {}".format(status_code, content))
             except requests.exceptions.RequestException as e:
                 print('HTTP Request failed: {}'.format(e))
+                raise
         try:
             return response.json()
         except json.decoder.JSONDecodeError:
@@ -150,7 +154,7 @@ class TopLevelData:
 
 
 class APIDetail:
-    def __init__(self, session, data=None):
+    def __init__(self, session, data=None, wb_data=None):
         self.session=session
         if data is not None:
             self._update(response=data)
@@ -242,9 +246,14 @@ class Node(APIDetail):
 
 
 class File(APIDetail):
-    def __init__(self, session, node=None, location=None, name=None, data=None):
+    def __init__(self, session, node=None, location=None, name=None, data=None, wb_data=None, token=None):
         super().__init__(session=session, data=data)
-        if data is None:
+        if wb_data is not None:
+            wb_attributes = wb_data['data']['attributes']
+            osf_url = "{}v2/files{}".format(self.session.api_base_url, wb_attributes['path'])
+            response = self.session.get(url=osf_url, token=token)
+            self._update(response=response)
+        elif data is None:
             self.name = name
             self.location = location
             self.type = "file"
@@ -312,8 +321,9 @@ class File(APIDetail):
 
 
 class Folder(File):
-    def __init__(self, session, node=None, location=None, name=None, data=None):
-        super().__init__(session=session, node=node, location=location, name=name, data=data)
+    def __init__(self, session, node=None, location=None, name=None, data=None, wb_data=None, token=None):
+        super().__init__(session=session, node=node, location=location, name=name, data=data,
+                         wb_data=wb_data, token=token)
         self.type = "files"
         self.files = []
 
@@ -345,7 +355,8 @@ class Folder(File):
             'name': name,
         }
         combined_query_parameters = {**query_parameters, **create_query_parameters}
-        return self.session.put(url=url, query_parameters=combined_query_parameters, token=token)
+        new_folder_data = self.session.put(url=url, query_parameters=combined_query_parameters, raw_body='', token=token)
+        return Folder(session=self.session, wb_data=new_folder_data, token=token)
 
     def upload(self, name, data, query_parameters=None, token=None):
         url = self.links.upload
@@ -355,7 +366,8 @@ class Folder(File):
             'name': name,
         }
         combined_query_parameters = {**query_parameters, **upload_query_parameters}
-        return self.session.put(url=url, query_parameters=combined_query_parameters, raw_data=data, token=token)
+        new_file_data = self.session.put(url=url, query_parameters=combined_query_parameters, raw_data=data, token=token)
+        return File(session=self.session, wb_data=new_file_data)
 
 
 class Provider(Folder):
