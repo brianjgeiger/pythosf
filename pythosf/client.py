@@ -8,10 +8,12 @@ from typing import List
 
 
 class Session:
-    def __init__(self, api_base_url, token=None, default_version=None):
+    def __init__(self, api_base_url, token=None, default_version=None, config=None):
         self.api_base_url = api_base_url
         self.default_version = default_version
         self.token = token
+        self.request_count = 0
+        self.error_count = 0
 
     @staticmethod
     def base_headers(token):
@@ -89,7 +91,9 @@ class Session:
                     status_code = response.status_code
                     content = getattr(response, 'content', None)
                     raise requests.exceptions.HTTPError("Status code {}. {}".format(status_code, content))
+                self.request_count += 1
             except requests.exceptions.RequestException as e:
+                self.error_count += 1
                 print('HTTP Request failed: {}'.format(e))
                 raise
         try:
@@ -249,16 +253,28 @@ class File(APIDetail):
     def __init__(self, session, node=None, location=None, name=None, data=None, wb_data=None, token=None):
         super().__init__(session=session, data=data)
         if wb_data is not None:
-            wb_attributes = wb_data['data']['attributes']
-            osf_url = "{}v2/files{}".format(self.session.api_base_url, wb_attributes['path'])
-            response = self.session.get(url=osf_url, token=token)
-            self._update(response=response)
+            self._update_from_wb(wb_data=wb_data, token=token)
         elif data is None:
             self.name = name
             self.location = location
             self.type = "file"
             self.node = node
             self.session = session
+
+    def _update_from_wb(self, wb_data, token=None):
+        token = token or self.session.token
+        wb_attributes = wb_data['data']['attributes']
+        if wb_attributes['provider'] == 'osfstorage':
+            osf_url = "{}v2/files{}".format(self.session.api_base_url, wb_attributes['path'])
+        else:
+            osf_url = "{}v2/nodes/{}/files/{}{}?info".format(
+                self.session.api_base_url,
+                wb_attributes['resource'],
+                wb_attributes['provider'],
+                wb_attributes['path']
+            )
+        response = self.session.get(url=osf_url, token=token)
+        self._update(response=response)
 
     def get(self, url=None, query_parameters=None, token=None):
         if url:
@@ -298,12 +314,14 @@ class File(APIDetail):
         return self.session.post(url=url, raw_body=raw_body, query_parameters=query_parameters, token=token)
 
     def move(self, to_folder, rename=None, conflict=None, query_parameters=None, token=None):
-        self._move_or_copy(to_folder=to_folder, action='move', rename=rename, conflict=conflict,
-                           query_parameters=query_parameters, token=token)
+        moved_file = self._move_or_copy(to_folder=to_folder, action='move', rename=rename, conflict=conflict,
+                                        query_parameters=query_parameters, token=token)
+        self._update_from_wb(wb_data=moved_file, token=token)
 
     def copy(self, to_folder, rename=None, conflict=None, query_parameters=None, token=None):
-        self._move_or_copy(to_folder=to_folder, action='copy', rename=rename, conflict=conflict,
-                           query_parameters=query_parameters, token=token)
+        new_file = self._move_or_copy(to_folder=to_folder, action='copy', rename=rename, conflict=conflict,
+                                      query_parameters=query_parameters, token=token)
+        return File(session=self.session, wb_data=new_file, token=token)
 
     def delete(self, query_parameters=None, token=None):
         url = self.links.delete
