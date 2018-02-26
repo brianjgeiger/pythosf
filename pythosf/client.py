@@ -281,6 +281,7 @@ class File(APIDetail):
             self.location = url
         elif self.links.self:
             self.location = self.links.self
+        #todo elif node, location, and name
 
         response = self.session.get(url=self.location, query_parameters=query_parameters, token=token)
         self._update(response=response)
@@ -325,7 +326,7 @@ class File(APIDetail):
 
     def delete(self, query_parameters=None, token=None):
         url = self.links.delete
-        return self.session.delete(url=url, query_parameters=query_parameters, token=token)
+        return self.session.delete(url=url, item_type=self.type, query_parameters=query_parameters, token=token)
 
     def rename(self, name, query_parameters=None, token=None):
         body = {
