@@ -1,3 +1,5 @@
+from requests_oauthlib import OAuth2
+
 def combine_headers(header_one, header_two):
     if header_two is None:
         return header_one
@@ -17,3 +19,11 @@ def unwrap_data(response):
         return response['data']
     else:
         return response
+
+
+def bearer_token_auth(token):
+    token_dict = {
+        'token_type': 'Bearer',
+        'access_token': token
+    }
+    return OAuth2(token=token_dict)
