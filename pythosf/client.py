@@ -8,29 +8,19 @@ from typing import List
 
 
 class Session:
-    def __init__(self, api_base_url, token=None, default_version=None, config=None):
+    def __init__(self, api_base_url, auth=None, default_version=None, config=None):
         self.api_base_url = api_base_url
         self.default_version = default_version
-        self.token = token
+        self.auth = auth
         self.request_count = 0
         self.error_count = 0
 
-    @staticmethod
-    def base_headers(token):
-        if token:
-            return {
-                'content-type': 'application/vnd.api+json',
-                'Authorization': 'Bearer {}'.format(token),
-            }
-        return {
-            'content-type': 'application/vnd.api+json',
-        }
+        self.base_headers = {'content-type': 'application/vnd.api+json'}
 
     def json_api_request(self, url, method=None, item_id=None, item_type=None, attributes=None, raw_body=None,
-                         query_parameters=None, fields=None, headers=None, retry=True, token=None):
+                         query_parameters=None, fields=None, headers=None, retry=True, auth=None):
         request_body = {}
-        if not token:
-            token = self.token
+        auth = auth or self.auth
 
         url = urllib.parse.urljoin(base=self.api_base_url, url=url)
         request_data = {}
@@ -63,19 +53,19 @@ class Session:
             try:
                 if method == 'GET':
                     response = requests.get(url, params=query_parameters,
-                                            headers=combine_headers(self.base_headers(token=token), headers))
+                                            headers=combine_headers(self.base_headers, headers), auth=auth)
                 elif method == 'POST':
                     response = requests.post(url, params=query_parameters, json=request_data, data=raw_body,
-                                             headers=combine_headers(self.base_headers(token=token), headers))
+                                             headers=combine_headers(self.base_headers, headers), auth=auth)
                 elif method == 'PUT':
                     response = requests.put(url, params=query_parameters, json=request_data, data=raw_body,
-                                            headers=combine_headers(self.base_headers(token=token), headers))
+                                            headers=combine_headers(self.base_headers, headers), auth=auth)
                 elif method == 'PATCH':
                     response = requests.patch(url, params=query_parameters, json=request_data, data=raw_body,
-                                              headers=combine_headers(self.base_headers(token=token), headers))
+                                              headers=combine_headers(self.base_headers, headers), auth=auth)
                 elif method == 'DELETE':
                     response = requests.delete(url, params=query_parameters,
-                                               headers=combine_headers(self.base_headers(token=token), headers))
+                                               headers=combine_headers(self.base_headers, headers), auth=auth)
                 else:
                     raise exceptions.UnsupportedHTTPMethod("Only GET/POST/PUT/PATCH/DELETE supported, not {}".format(method))
                 if response.status_code == 429:
@@ -101,43 +91,43 @@ class Session:
         except json.decoder.JSONDecodeError:
             return None
 
-    def get(self, url, query_parameters=None, headers=None, retry=True, token=None, retrieve_all=False):
+    def get(self, url, query_parameters=None, headers=None, retry=True, auth=None, retrieve_all=False):
         response = self.json_api_request(url=url, method="GET", query_parameters=query_parameters,
-                                     headers=headers, retry=retry, token=token)
+                                     headers=headers, retry=retry, auth=auth)
         response_data = response['data']
         if retrieve_all == True and isinstance(response_data, List) and response['links']['next']:
             items = response_data
             while response['links']['next']:
                 response = self.json_api_request(url=response['links']['next'], method="GET",
                                                  query_parameters=query_parameters, headers=headers, retry=retry,
-                                                 token=token)
+                                                 auth=auth)
                 response_data = response['data']
                 items = items + response_data
             response['data'] = items
         return response
 
-    def post(self, url, item_type=None, query_parameters=None, attributes=None, headers=None, retry=True, token=None,
+    def post(self, url, item_type=None, query_parameters=None, attributes=None, headers=None, retry=True, auth=None,
              raw_body=None):
         return self.json_api_request(url=url, method="POST", item_type=item_type, attributes=attributes,
                                      query_parameters=query_parameters, headers=headers, retry=retry,
-                                     raw_body=raw_body, token=token)
+                                     raw_body=raw_body, auth=auth)
 
     def put(self, url, item_id=None, item_type=None, query_parameters=None, attributes=None, headers=None,
-            retry=True, raw_body=None, token=None):
+            retry=True, raw_body=None, auth=None):
         return self.json_api_request(url=url, method="PUT", item_id=item_id, item_type=item_type,
                                      attributes=attributes, query_parameters=query_parameters, headers=headers,
-                                     retry=retry, raw_body=raw_body, token=token)
+                                     retry=retry, raw_body=raw_body, auth=auth)
 
     def patch(self, url, item_id, item_type, query_parameters=None, attributes=None, headers=None,
-              retry=True, raw_body=None, token=None):
+              retry=True, raw_body=None, auth=None):
         return self.json_api_request(url=url, method="PATCH", item_id=item_id, item_type=item_type,
                                      attributes=attributes, query_parameters=query_parameters, headers=headers,
-                                     retry=retry, raw_body=raw_body, token=token)
+                                     retry=retry, raw_body=raw_body, auth=auth)
 
     def delete(self, url, item_type, query_parameters=None, attributes=None, headers=None,
-               retry=True, token=None):
+               retry=True, auth=None):
         self.json_api_request(url=url, method="DELETE", item_type=item_type, attributes=attributes,
-                              query_parameters=query_parameters, headers=headers, retry=retry, token=token)
+                              query_parameters=query_parameters, headers=headers, retry=retry, auth=auth)
         return None
 
     @staticmethod
@@ -190,37 +180,37 @@ class Node(APIDetail):
         self.providers = []
 
     def create(self, title, category="project", description=None, public=None, tags=None,
-               template_from=None, query_parameters=None, token=None):
+               template_from=None, query_parameters=None, auth=None):
         saved_args = locals()
         attributes = self.session.remove_none_items(saved_args)
         response = self.session.post(url='/v2/nodes/', item_type=self.type, attributes=attributes,
-                                     query_parameters=query_parameters, token=token)
+                                     query_parameters=query_parameters, auth=auth)
         if response:
             self._update(response=response)
         return self
 
     def create_child(self, title, category="project", description=None, public=None, tags=None,
-                     template_from=None, query_parameters=None, token=None):
+                     template_from=None, query_parameters=None, auth=None):
         saved_args = locals()
         attributes = self.session.remove_none_items(saved_args)
         child_node = Node(session=self.session)
         url = self.relationships.children['links']['related']['href']
         response = self.session.post(url=url, item_type=self.type, attributes=attributes,
-                                     query_parameters=query_parameters, token=token)
+                                     query_parameters=query_parameters, auth=auth)
         if response:
             child_node._update(response=response)
         return child_node
 
-    def delete(self, query_parameters=None, token=None):
+    def delete(self, query_parameters=None, auth=None):
         if self.id is None:
             return None
         else:
             self_url = self.links.self
-            self.session.delete(url=self_url, item_type=self.type, query_parameters=query_parameters, token=token)
+            self.session.delete(url=self_url, item_type=self.type, query_parameters=query_parameters, auth=auth)
             self.id = None
             return None
 
-    def get(self, query_parameters=None, token=None):
+    def get(self, query_parameters=None, auth=None):
         url = None
         if self.self_link:
             url = self.self_link
@@ -230,17 +220,17 @@ class Node(APIDetail):
             url = '/v2/nodes/{}/'.format(self.id)
 
         if url:
-            response = self.session.get(url=url, query_parameters=query_parameters, token=token)
+            response = self.session.get(url=url, query_parameters=query_parameters, auth=auth)
             if response:
                 self._update(response=response)
         else:
             raise ValueError("No url or id to get. Set the id or self_link then try to get.")
 
-    def get_providers(self, query_parameters=None, token=None):
+    def get_providers(self, query_parameters=None, auth=None):
         if not getattr(self, 'relationships', False):
-            self.get(token=token)
+            self.get(auth=auth)
         providers_url = self.relationships.files['links']['related']['href']
-        response = self.session.get(url=providers_url, query_parameters=query_parameters, token=token)
+        response = self.session.get(url=providers_url, query_parameters=query_parameters, auth=auth)
         if response:
             providers = response['data']
             for provider in providers:
@@ -250,10 +240,10 @@ class Node(APIDetail):
 
 
 class File(APIDetail):
-    def __init__(self, session, node=None, location=None, name=None, data=None, wb_data=None, token=None):
+    def __init__(self, session, node=None, location=None, name=None, data=None, wb_data=None, auth=None):
         super().__init__(session=session, data=data)
         if wb_data is not None:
-            self._update_from_wb(wb_data=wb_data, token=token)
+            self._update_from_wb(wb_data=wb_data, auth=auth)
         elif data is None:
             self.name = name
             self.location = location
@@ -261,8 +251,8 @@ class File(APIDetail):
             self.node = node
             self.session = session
 
-    def _update_from_wb(self, wb_data, token=None):
-        token = token or self.session.token
+    def _update_from_wb(self, wb_data, auth=None):
+        auth = auth or self.session.auth
         wb_attributes = wb_data['data']['attributes']
         if wb_attributes['provider'] == 'osfstorage':
             osf_url = "{}v2/files{}".format(self.session.api_base_url, wb_attributes['path'])
@@ -273,33 +263,33 @@ class File(APIDetail):
                 wb_attributes['provider'],
                 wb_attributes['path']
             )
-        response = self.session.get(url=osf_url, token=token)
+        response = self.session.get(url=osf_url, auth=auth)
         self._update(response=response)
 
-    def get(self, url=None, query_parameters=None, token=None):
+    def get(self, url=None, query_parameters=None, auth=None):
         if url:
             self.location = url
         elif self.links.self:
             self.location = self.links.self
         #todo elif node, location, and name
 
-        response = self.session.get(url=self.location, query_parameters=query_parameters, token=token)
+        response = self.session.get(url=self.location, query_parameters=query_parameters, auth=auth)
         self._update(response=response)
 
-    def download(self, query_parameters=None, token=None):
+    def download(self, query_parameters=None, auth=None):
         url = self.links.download
-        return self.session.get(url=url, query_parameters=query_parameters, token=token)
+        return self.session.get(url=url, query_parameters=query_parameters, auth=auth)
 
-    def upload(self, data, query_parameters=None, token=None):
+    def upload(self, data, query_parameters=None, auth=None):
         url = self.links.upload
         query_parameters = query_parameters or {}
         upload_query_parameters={
             'kind': 'file',
         }
         combined_query_parameters = {**query_parameters, **upload_query_parameters}
-        return self.session.put(url=url, query_parameters=combined_query_parameters, raw_body=data, token=token)
+        return self.session.put(url=url, query_parameters=combined_query_parameters, raw_body=data, auth=auth)
 
-    def _move_or_copy(self, to_folder, action, rename=None, conflict=None, query_parameters=None, token=None):
+    def _move_or_copy(self, to_folder, action, rename=None, conflict=None, query_parameters=None, auth=None):
         body = {
             'action': action,
             'path': to_folder.path,
@@ -312,43 +302,43 @@ class File(APIDetail):
             body['conflict'] = conflict
         raw_body = json.JSONEncoder().encode(body)
         url = self.links.move
-        return self.session.post(url=url, raw_body=raw_body, query_parameters=query_parameters, token=token)
+        return self.session.post(url=url, raw_body=raw_body, query_parameters=query_parameters, auth=auth)
 
-    def move(self, to_folder, rename=None, conflict=None, query_parameters=None, token=None):
+    def move(self, to_folder, rename=None, conflict=None, query_parameters=None, auth=None):
         moved_file = self._move_or_copy(to_folder=to_folder, action='move', rename=rename, conflict=conflict,
-                                        query_parameters=query_parameters, token=token)
-        self._update_from_wb(wb_data=moved_file, token=token)
+                                        query_parameters=query_parameters, auth=auth)
+        self._update_from_wb(wb_data=moved_file, auth=auth)
 
-    def copy(self, to_folder, rename=None, conflict=None, query_parameters=None, token=None):
+    def copy(self, to_folder, rename=None, conflict=None, query_parameters=None, auth=None):
         new_file = self._move_or_copy(to_folder=to_folder, action='copy', rename=rename, conflict=conflict,
-                                      query_parameters=query_parameters, token=token)
-        return File(session=self.session, wb_data=new_file, token=token)
+                                      query_parameters=query_parameters, auth=auth)
+        return File(session=self.session, wb_data=new_file, auth=auth)
 
-    def delete(self, query_parameters=None, token=None):
+    def delete(self, query_parameters=None, auth=None):
         url = self.links.delete
-        return self.session.delete(url=url, item_type=self.type, query_parameters=query_parameters, token=token)
+        return self.session.delete(url=url, item_type=self.type, query_parameters=query_parameters, auth=auth)
 
-    def rename(self, name, query_parameters=None, token=None):
+    def rename(self, name, query_parameters=None, auth=None):
         body = {
             'action': 'rename',
             'rename': name
         }
         raw_body = json.JSONEncoder().encode(body)
         url = self.links.move
-        response = self.session.post(url=url, raw_body=raw_body, query_parameters=query_parameters, token=token)
+        response = self.session.post(url=url, raw_body=raw_body, query_parameters=query_parameters, auth=auth)
         self._update(response=response)
 
 
 class Folder(File):
-    def __init__(self, session, node=None, location=None, name=None, data=None, wb_data=None, token=None):
+    def __init__(self, session, node=None, location=None, name=None, data=None, wb_data=None, auth=None):
         super().__init__(session=session, node=node, location=location, name=name, data=data,
-                         wb_data=wb_data, token=token)
+                         wb_data=wb_data, auth=auth)
         self.type = "files"
         self.files = []
 
-    def get(self, token=None, append=False, query_parameters=None, retrieve_all=False):
+    def get(self, auth=None, append=False, query_parameters=None, retrieve_all=False):
         url = self.relationships.files['links']['related']['href']
-        response = self.session.get(url=url, token=token, retrieve_all=retrieve_all, query_parameters=query_parameters)
+        response = self.session.get(url=url, auth=auth, retrieve_all=retrieve_all, query_parameters=query_parameters)
         if response:
             files = response['data']
             if not append:
@@ -360,13 +350,13 @@ class Folder(File):
                 elif file_kind == 'folder':
                     self.files.append(Folder(session=self.session, data=file))
 
-    def download(self, query_parameters=None, token=None):
+    def download(self, query_parameters=None, auth=None):
         raise exceptions.UnsupportedMethod("Cannot download a folder")
 
-    def list(self, token=None, append=False, query_parameters=None, retrieve_all=False):
-        return self.get(token=token, append=append, query_parameters=query_parameters, retrieve_all=retrieve_all)
+    def list(self, auth=None, append=False, query_parameters=None, retrieve_all=False):
+        return self.get(auth=auth, append=append, query_parameters=query_parameters, retrieve_all=retrieve_all)
 
-    def create(self, name, query_parameters=None, token=None):
+    def create(self, name, query_parameters=None, auth=None):
         url = self.links.new_folder
         query_parameters = query_parameters or {}
         create_query_parameters = {
@@ -374,10 +364,10 @@ class Folder(File):
             'name': name,
         }
         combined_query_parameters = {**query_parameters, **create_query_parameters}
-        new_folder_data = self.session.put(url=url, query_parameters=combined_query_parameters, raw_body='', token=token)
-        return Folder(session=self.session, wb_data=new_folder_data, token=token)
+        new_folder_data = self.session.put(url=url, query_parameters=combined_query_parameters, raw_body='', auth=auth)
+        return Folder(session=self.session, wb_data=new_folder_data, auth=auth)
 
-    def upload(self, name, data, query_parameters=None, token=None):
+    def upload(self, name, data, query_parameters=None, auth=None):
         url = self.links.upload
         query_parameters = query_parameters or {}
         upload_query_parameters = {
@@ -385,7 +375,7 @@ class Folder(File):
             'name': name,
         }
         combined_query_parameters = {**query_parameters, **upload_query_parameters}
-        new_file_data = self.session.put(url=url, query_parameters=combined_query_parameters, raw_data=data, token=token)
+        new_file_data = self.session.put(url=url, query_parameters=combined_query_parameters, raw_data=data, auth=auth)
         return File(session=self.session, wb_data=new_file_data)
 
 
@@ -403,7 +393,7 @@ class User(APIDetail):
             self.meta = None
             self.self_link = self_link
 
-    def get(self, query_parameters=None, token=None):
+    def get(self, query_parameters=None, auth=None):
         url = '/v2/users/me/'
         if self.self_link:
             url = self.self_link
@@ -412,7 +402,7 @@ class User(APIDetail):
         elif self.id:
             url = '/v2/users/{}/'.format(self.id)
 
-        response = self.session.get(url=url, query_parameters=query_parameters, token=token)
+        response = self.session.get(url=url, query_parameters=query_parameters, auth=auth)
         if response:
             self._update(response=response)
         else:
