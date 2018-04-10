@@ -15,8 +15,8 @@ Example usage:
     print(getattr(new_node, 'date_modified', None))
     print(getattr(child_node, 'title', None))
     print(getattr(child_node, 'date_modified', None))
-    child_node.delete(token=bearer_token_auth(STAGING_TOKEN))
-    new_node.delete(token=bearer_token_auth(STAGING_TOKEN))
+    child_node.delete(auth=bearer_token_auth(STAGING_TOKEN))
+    new_node.delete(auth=bearer_token_auth(STAGING_TOKEN))
 
     some_project = client.Node(session=test_session, id='9h53q')
     providers = some_project.get_providers()
