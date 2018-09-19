@@ -42,9 +42,15 @@ class Session:
             method = method.upper()
         if query_parameters:
             if not query_parameters.get('version', None):
-                query_parameters.update({'version': self.default_version})
+                headers=combine_headers(
+                    headers,
+                    {'Accept-Header': 'application/vnd.api+json;version={}'.format(self.default_version)}
+                )
         else:
-            query_parameters = {'version': self.default_version}
+            headers = combine_headers(
+                headers,
+                {'Accept-Header': 'application/vnd.api+json;version={}'.format(self.default_version)}
+            )
         keep_trying = True
         response = None
 
