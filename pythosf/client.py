@@ -2,6 +2,7 @@ import json
 import urllib
 import requests
 import time
+import logging
 from .utils import combine_headers, save_attribute_items, unwrap_data
 from . import exceptions
 from typing import List
@@ -33,7 +34,7 @@ class Session:
             if item_type is not None:
                 request_body['type'] = item_type
             if request_body is not None:
-                request_data['data']=request_body
+                request_data['data'] = request_body
         elif raw_body == '':
             request_data = None
             raw_body = None
@@ -73,24 +74,26 @@ class Session:
                     response = requests.delete(url, params=query_parameters,
                                                headers=combine_headers(self.base_headers, headers), auth=auth)
                 else:
-                    raise exceptions.UnsupportedHTTPMethod("Only GET/POST/PUT/PATCH/DELETE supported, not {}".format(method))
+                    raise exceptions.UnsupportedHTTPMethod(
+                        "Only GET/POST/PUT/PATCH/DELETE supported, not {}".format(method))
                 if response.status_code == 429:
                     keep_trying = retry
                     response_headers = response.headers
                     wait_time = response_headers['Retry-After']
                     if keep_trying:
-                        print("Throttled: retrying in {wait_time}s")
+                        logging.log(logging.INFO, "Throttled: retrying in {wait_time}s")
                         time.sleep(int(wait_time))
                     else:
-                        print("Throttled. Please retry after {wait_time}s")
+                        logging.log(logging.ERROR, "Throttled. Please retry after {wait_time}s")
                 elif response.status_code >= 400:
                     status_code = response.status_code
                     content = getattr(response, 'content', None)
-                    raise requests.exceptions.HTTPError("Status code {}. {}".format(status_code, content))
+                    raise requests.exceptions.HTTPError(
+                        "Status code {}. {}".format(status_code, content))
                 self.request_count += 1
             except requests.exceptions.RequestException as e:
                 self.error_count += 1
-                print('HTTP Request failed: {}'.format(e))
+                logging.log(logging.ERROR,'HTTP Request failed: {}'.format(e))
                 raise
         try:
             return response.json()
@@ -99,13 +102,13 @@ class Session:
 
     def get(self, url, query_parameters=None, headers=None, retry=True, auth=None, retrieve_all=False):
         response = self.json_api_request(url=url, method="GET", query_parameters=query_parameters,
-                                     headers=headers, retry=retry, auth=auth)
+                                         headers=headers, retry=retry, auth=auth)
         response_data = response['data']
         if retrieve_all == True and isinstance(response_data, List) and response['links']['next']:
             items = response_data
             while response['links']['next']:
                 response = self.json_api_request(url=response['links']['next'], method="GET",
-                                                 query_parameters=query_parameters, headers=headers, retry=retry,
+                                                 headers=headers, retry=retry,
                                                  auth=auth)
                 response_data = response['data']
                 items = items + response_data
@@ -138,7 +141,7 @@ class Session:
 
     @staticmethod
     def remove_none_items(items):
-        return {key: value for key,value in items.items() if value is not None and key != 'self' and key != 'token'}
+        return {key: value for key, value in items.items() if value is not None and key != 'self' and key != 'token'}
 
 
 class TopLevelData:
@@ -155,7 +158,7 @@ class TopLevelData:
 
 class APIDetail:
     def __init__(self, session, data=None, wb_data=None):
-        self.session=session
+        self.session = session
         if data is not None:
             self._update(response=data)
 
@@ -169,7 +172,8 @@ class APIDetail:
                 response_attributes = response_data
             save_attribute_items(self, response_attributes=response_attributes)
             self.id = response_data.get('id', None)
-            self.relationships = TopLevelData(response=response, tld_key='relationships')
+            self.relationships = TopLevelData(
+                response=response, tld_key='relationships')
             self.links = TopLevelData(response=response, tld_key='links')
             self.meta = TopLevelData(response=response, tld_key='meta')
 
@@ -212,7 +216,8 @@ class Node(APIDetail):
             return None
         else:
             self_url = self.links.self
-            self.session.delete(url=self_url, item_type=self.type, query_parameters=query_parameters, auth=auth)
+            self.session.delete(url=self_url, item_type=self.type,
+                                query_parameters=query_parameters, auth=auth)
             self.id = None
             return None
 
@@ -226,21 +231,25 @@ class Node(APIDetail):
             url = '/v2/nodes/{}/'.format(self.id)
 
         if url:
-            response = self.session.get(url=url, query_parameters=query_parameters, auth=auth)
+            response = self.session.get(
+                url=url, query_parameters=query_parameters, auth=auth)
             if response:
                 self._update(response=response)
         else:
-            raise ValueError("No url or id to get. Set the id or self_link then try to get.")
+            raise ValueError(
+                "No url or id to get. Set the id or self_link then try to get.")
 
     def get_providers(self, query_parameters=None, auth=None):
         if not getattr(self, 'relationships', False):
             self.get(auth=auth)
         providers_url = self.relationships.files['links']['related']['href']
-        response = self.session.get(url=providers_url, query_parameters=query_parameters, auth=auth)
+        response = self.session.get(
+            url=providers_url, query_parameters=query_parameters, auth=auth)
         if response:
             providers = response['data']
             for provider in providers:
-                self.providers.append(Provider(session= self.session, data=provider))
+                self.providers.append(
+                    Provider(session=self.session, data=provider))
 
         return self.providers
 
@@ -261,7 +270,8 @@ class File(APIDetail):
         auth = auth or self.session.auth
         wb_attributes = wb_data['data']['attributes']
         if wb_attributes['provider'] == 'osfstorage':
-            osf_url = "{}v2/files{}".format(self.session.api_base_url, wb_attributes['path'])
+            osf_url = "{}v2/files{}".format(self.session.api_base_url,
+                                            wb_attributes['path'])
         else:
             osf_url = "{}v2/nodes/{}/files/{}{}?info".format(
                 self.session.api_base_url,
@@ -277,9 +287,10 @@ class File(APIDetail):
             self.location = url
         elif self.links.self:
             self.location = self.links.self
-        #todo elif node, location, and name
+        # todo elif node, location, and name
 
-        response = self.session.get(url=self.location, query_parameters=query_parameters, auth=auth)
+        response = self.session.get(
+            url=self.location, query_parameters=query_parameters, auth=auth)
         self._update(response=response)
 
     def download(self, query_parameters=None, auth=None):
@@ -289,10 +300,11 @@ class File(APIDetail):
     def upload(self, data, query_parameters=None, auth=None):
         url = self.links.upload
         query_parameters = query_parameters or {}
-        upload_query_parameters={
+        upload_query_parameters = {
             'kind': 'file',
         }
-        combined_query_parameters = {**query_parameters, **upload_query_parameters}
+        combined_query_parameters = {
+            **query_parameters, **upload_query_parameters}
         return self.session.put(url=url, query_parameters=combined_query_parameters, raw_body=data, auth=auth)
 
     def _move_or_copy(self, to_folder, action, rename=None, conflict=None, query_parameters=None, auth=None):
@@ -331,7 +343,8 @@ class File(APIDetail):
         }
         raw_body = json.JSONEncoder().encode(body)
         url = self.links.move
-        response = self.session.post(url=url, raw_body=raw_body, query_parameters=query_parameters, auth=auth)
+        response = self.session.post(
+            url=url, raw_body=raw_body, query_parameters=query_parameters, auth=auth)
         self._update(response=response)
 
 
@@ -344,7 +357,8 @@ class Folder(File):
 
     def get(self, auth=None, append=False, query_parameters=None, retrieve_all=False):
         url = self.relationships.files['links']['related']['href']
-        response = self.session.get(url=url, auth=auth, retrieve_all=retrieve_all, query_parameters=query_parameters)
+        response = self.session.get(
+            url=url, auth=auth, retrieve_all=retrieve_all, query_parameters=query_parameters)
         if response:
             files = response['data']
             if not append:
@@ -359,8 +373,18 @@ class Folder(File):
     def download(self, query_parameters=None, auth=None):
         raise exceptions.UnsupportedMethod("Cannot download a folder")
 
-    def list(self, auth=None, append=False, query_parameters=None, retrieve_all=False):
-        return self.get(auth=auth, append=append, query_parameters=query_parameters, retrieve_all=retrieve_all)
+    def list(
+        self, auth=None,
+        append=False,
+        query_parameters=None,
+        retrieve_all=False
+    ):
+        return self.get(
+            auth=auth,
+            append=append,
+            query_parameters=query_parameters,
+            retrieve_all=retrieve_all
+        )
 
     def create(self, name, query_parameters=None, auth=None):
         url = self.links.new_folder
@@ -369,8 +393,10 @@ class Folder(File):
             'kind': 'folder',
             'name': name,
         }
-        combined_query_parameters = {**query_parameters, **create_query_parameters}
-        new_folder_data = self.session.put(url=url, query_parameters=combined_query_parameters, raw_body='', auth=auth)
+        combined_query_parameters = {
+            **query_parameters, **create_query_parameters}
+        new_folder_data = self.session.put(
+            url=url, query_parameters=combined_query_parameters, raw_body='', auth=auth)
         return Folder(session=self.session, wb_data=new_folder_data, auth=auth)
 
     def upload(self, name, data, query_parameters=None, auth=None):
@@ -380,8 +406,10 @@ class Folder(File):
             'kind': 'file',
             'name': name,
         }
-        combined_query_parameters = {**query_parameters, **upload_query_parameters}
-        new_file_data = self.session.put(url=url, query_parameters=combined_query_parameters, raw_data=data, auth=auth)
+        combined_query_parameters = {
+            **query_parameters, **upload_query_parameters}
+        new_file_data = self.session.put(
+            url=url, query_parameters=combined_query_parameters, raw_data=data, auth=auth)
         return File(session=self.session, wb_data=new_file_data)
 
 
@@ -408,8 +436,10 @@ class User(APIDetail):
         elif self.id:
             url = '/v2/users/{}/'.format(self.id)
 
-        response = self.session.get(url=url, query_parameters=query_parameters, auth=auth)
+        response = self.session.get(
+            url=url, query_parameters=query_parameters, auth=auth)
         if response:
             self._update(response=response)
         else:
-            raise ValueError("No url or id to get. Set the id or self_link then try to get.")
+            raise ValueError(
+                "No url or id to get. Set the id or self_link then try to get.")
