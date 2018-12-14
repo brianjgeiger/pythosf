@@ -5,7 +5,7 @@ Example usage:
 
 ```py
     from pythosf import client
-    from pythosf.utils import bearer_token_auth
+    from pythosf import bearer_token_auth
 
     test_session = client.Session(api_base_url="https://staging-api.osf.io/", auth=bearer_token_auth(STAGING_TOKEN))
 
