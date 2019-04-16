@@ -30,7 +30,7 @@ class Session:
             if attributes is not None:
                 request_body['attributes'] = attributes
             if item_id is not None:
-                request_body['id'] = id
+                request_body['id'] = item_id
             if item_type is not None:
                 request_body['type'] = item_type
             if request_body is not None:
